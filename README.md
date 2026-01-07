@@ -21,6 +21,10 @@ This project implements a Digital Twin Factory system using AI and data visualiz
 - Load
 - Efficiency
 
+## 🌐 Live Demo (Deployed App)
+🔗 **Streamlit App Link:**  
+https://digitaltwinfactorysimulator-atmsewkvcvqruonpfbbfa4.streamlit.app
+
 ## Academic Project
 Developed by **Manoj C**  
 Dayananda Sagar Academy of Technology & Management
