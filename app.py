@@ -1,4 +1,7 @@
-# app.py
+# ==============================================================
+# app.py — Digital Twin Factory Simulator (FULL WORKING VERSION)
+# ==============================================================
+
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 import random
@@ -10,20 +13,20 @@ import json
 from datetime import datetime
 
 # --------------------------------------------------------------
-# PAGE CONFIG + AUTO REFRESH (GLOBAL)
+# PAGE CONFIG + GLOBAL AUTO REFRESH (5 SECONDS)
 # --------------------------------------------------------------
 st.set_page_config(page_title="Digital Twin Factory", layout="wide")
 st_autorefresh(interval=5000, key="global_refresh")
 
 # --------------------------------------------------------------
-# FILE PATHS
+# PATHS
 # --------------------------------------------------------------
 FACTORY_CSV = "factory_data.csv"
 ALERTS_FILE = "alerts.json"
 AI_MODEL_PATH = "ai_model.pkl"
 
 # --------------------------------------------------------------
-# UPDATE FACTORY DATA EVERY REFRESH (MAIN FIX)
+# UPDATE FACTORY DATA EVERY REFRESH (CORE FIX)
 # --------------------------------------------------------------
 def update_factory_data():
     machines = [
@@ -44,15 +47,16 @@ def update_factory_data():
             "Status": status
         })
 
-    df_new = pd.DataFrame(rows)
-    df_new.to_csv(FACTORY_CSV, index=False)
+    pd.DataFrame(rows).to_csv(FACTORY_CSV, index=False)
 
 # --------------------------------------------------------------
-# LOAD DATA
+# LOAD FACTORY DATA
 # --------------------------------------------------------------
 def read_factory_data():
     if not os.path.exists(FACTORY_CSV):
-        return pd.DataFrame(columns=["Machine","Temperature","Speed","Load","Status"])
+        return pd.DataFrame(
+            columns=["Machine", "Temperature", "Speed", "Load", "Status"]
+        )
     return pd.read_csv(FACTORY_CSV)
 
 # --------------------------------------------------------------
@@ -61,7 +65,10 @@ def read_factory_data():
 @st.cache_resource
 def load_model():
     if os.path.exists(AI_MODEL_PATH):
-        return joblib.load(AI_MODEL_PATH)
+        try:
+            return joblib.load(AI_MODEL_PATH)
+        except:
+            return None
     return None
 
 model = load_model()
@@ -90,17 +97,19 @@ def save_alerts(alerts):
 
 def generate_alerts(df):
     alerts = load_alerts()
+
     for _, r in df.iterrows():
         if r["Temperature"] > 90 or r["Load"] > 90:
             alerts.append({
-                "time": datetime.now().strftime("%H:%M:%S"),
+                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "machine": r["Machine"],
                 "issue": "High Temperature / Load"
             })
-    save_alerts(alerts[-20:])
+
+    save_alerts(alerts[-50:])
 
 # --------------------------------------------------------------
-# UPDATE DATA + READ DATA
+# UPDATE DATA + READ DATA (EVERY REFRESH)
 # --------------------------------------------------------------
 update_factory_data()
 df = read_factory_data()
@@ -109,42 +118,36 @@ generate_alerts(df)
 # --------------------------------------------------------------
 # SIDEBAR
 # --------------------------------------------------------------
+st.sidebar.markdown(
+    "<h2 style='color:white;'>Developed by <b>Manoj C</b></h2>",
+    unsafe_allow_html=True
+)
 st.sidebar.title("Navigation")
+
 page = st.sidebar.selectbox(
     "Select Page",
-    ["Dashboard", "CNC-1", "CNC-2", "Lathe-1", "Mill-1", "Drill-1", "Alerts"]
+    [
+        "Dashboard",
+        "CNC Machine 1",
+        "CNC Machine 2",
+        "Lathe Machine",
+        "Milling Machine",
+        "Drilling Machine",
+        "Alerts"
+    ]
 )
 
 # --------------------------------------------------------------
-# DASHBOARD
+# MACHINE PAGE FUNCTION (PLACED BEFORE IF/ELIF — FIXES ERROR)
 # --------------------------------------------------------------
-if page == "Dashboard":
-    st.title("🏭 Digital Twin Factory Dashboard")
+def show_machine(machine_name, image_file=None):
+    st.title(f"🔧 {machine_name}")
 
-    df["Efficiency"] = df.apply(
-        lambda r: predict_efficiency(r["Temperature"], r["Speed"], r["Load"]), axis=1
+    d = df[df["Machine"] == machine_name].iloc[-1]
+
+    eff = predict_efficiency(
+        d["Temperature"], d["Speed"], d["Load"]
     )
-
-    st.dataframe(df, use_container_width=True)
-
-    fig = px.scatter(
-        df,
-        x="Temperature",
-        y="Efficiency",
-        color="Machine",
-        size="Load",
-        title="Machine Efficiency Overview"
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-# --------------------------------------------------------------
-# MACHINE PAGE FUNCTION
-# --------------------------------------------------------------
-def show_machine(machine):
-    st.title(f"🔧 {machine}")
-    d = df[df["Machine"] == machine].iloc[-1]
-
-    eff = predict_efficiency(d["Temperature"], d["Speed"], d["Load"])
 
     c1, c2, c3 = st.columns(3)
     c1.metric("Temperature (°C)", d["Temperature"])
@@ -153,31 +156,62 @@ def show_machine(machine):
 
     st.metric("Efficiency (%)", eff)
 
+    fig = px.line(
+        df[df["Machine"] == machine_name],
+        y=["Temperature", "Speed", "Load"],
+        title=f"{machine_name} Parameters Trend"
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
 # --------------------------------------------------------------
-# MACHINE PAGES
+# PAGE ROUTING (NO FUNCTIONS BETWEEN IF / ELIF)
 # --------------------------------------------------------------
-elif page == "CNC-1":
+if page == "Dashboard":
+    st.title("🏭 Digital Twin Factory Dashboard")
+
+    df["Efficiency"] = df.apply(
+        lambda r: predict_efficiency(
+            r["Temperature"], r["Speed"], r["Load"]
+        ),
+        axis=1
+    )
+
+    st.dataframe(df, use_container_width=True)
+
+    fig = px.scatter(
+        df,
+        x="Temperature",
+        y="Efficiency",
+        size="Load",
+        color="Machine",
+        title="Machine Efficiency Overview"
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+elif page == "CNC Machine 1":
     show_machine("CNC-1")
 
-elif page == "CNC-2":
+elif page == "CNC Machine 2":
     show_machine("CNC-2")
 
-elif page == "Lathe-1":
+elif page == "Lathe Machine":
     show_machine("Lathe-1")
 
-elif page == "Mill-1":
+elif page == "Milling Machine":
     show_machine("Mill-1")
 
-elif page == "Drill-1":
+elif page == "Drilling Machine":
     show_machine("Drill-1")
 
-# --------------------------------------------------------------
-# ALERTS PAGE
-# --------------------------------------------------------------
 elif page == "Alerts":
-    st.title("🚨 Alerts")
+    st.title("🚨 Alerts Center")
+
     alerts = load_alerts()
     if alerts:
         st.dataframe(pd.DataFrame(alerts), use_container_width=True)
     else:
-        st.success("No alerts")
+        st.success("No alerts detected")
+
+# ==============================================================
+# END OF FILE
+# ==============================================================
