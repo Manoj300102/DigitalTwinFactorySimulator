@@ -20,23 +20,6 @@ FACTORY_CSV = "factory_data.csv"
 ALERTS_FILE = "alerts.json"
 AI_MODEL_PATHS = ["ai_model.pkl", "/mnt/data/ai_model.pkl"]
 
-# --------------------------------------------------------------
-# AUTO UPDATE FACTORY DATA EVERY 5 SECONDS  ✅ (ADDED)
-# --------------------------------------------------------------
-def auto_update_factory_data():
-    machines = ["CNC-1", "CNC-2", "Lathe-1", "Mill-1", "Drill-1"]
-    rows = []
-
-    for m in machines:
-        rows.append({
-            "Machine": m,
-            "Temperature": round(random.uniform(65, 100), 2),
-            "Speed": round(random.uniform(500, 1500), 2),
-            "Load": round(random.uniform(30, 100), 2),
-            "Status": "Running"
-        })
-
-    pd.DataFrame(rows).to_csv(FACTORY_CSV, index=False)
 
 # --------------------------------------------------------------
 # SOUND ALERT FUNCTION
@@ -50,6 +33,7 @@ def play_alert_sound():
         </script>
     """
     st.markdown(js, unsafe_allow_html=True)
+
 
 # --------------------------------------------------------------
 # LOAD AI MODEL
@@ -65,6 +49,7 @@ def load_ai_model():
     return None
 
 model = load_ai_model()
+
 
 # --------------------------------------------------------------
 # UTILITY HELPERS
@@ -97,6 +82,7 @@ def status_light(status):
         return "🔴"
     return "⚪"
 
+
 # --------------------------------------------------------------
 # AI PREDICTION
 # --------------------------------------------------------------
@@ -109,13 +95,19 @@ def predict_efficiency(temp, speed, load):
     except:
         return None
 
+
 # --------------------------------------------------------------
 # PREDICTIVE MAINTENANCE
 # --------------------------------------------------------------
 def maintenance_prediction(temp, speed, load, efficiency):
+    """
+    Returns: (issue_text, hours_remaining)
+    """
+
     if efficiency is None:
         efficiency = 100
 
+    # Temperature rules
     if temp > 95:
         return "🔥 Overheat Failure Predicted", 6
     elif temp > 90:
@@ -123,6 +115,7 @@ def maintenance_prediction(temp, speed, load, efficiency):
     elif temp > 85:
         return "⚠️ Temperature Rising", 24
 
+    # Load rules
     if load > 95:
         return "⚙️ Load Overstress Likely", 8
     elif load > 90:
@@ -130,6 +123,7 @@ def maintenance_prediction(temp, speed, load, efficiency):
     elif load > 85:
         return "⚠️ Load Increasing", 36
 
+    # AI efficiency rules
     if efficiency < 30:
         return "🔩 Critical Efficiency Drop", 10
     elif efficiency < 50:
@@ -138,6 +132,7 @@ def maintenance_prediction(temp, speed, load, efficiency):
         return "🛠 Maintenance Suggested Soon", 48
 
     return "✅ No Issues — Stable", 72
+
 
 # --------------------------------------------------------------
 # ALERT SYSTEM
@@ -189,10 +184,15 @@ def generate_alerts(df):
     last = df.groupby("Machine", as_index=False).last()
 
     for _, row in last.iterrows():
+
+        m = row["Machine"]
         temp = try_float(row["Temperature"])
         loadv = try_float(row["Load"])
         speed = try_float(row["Speed"])
+        status = row["Status"]
         eff = predict_efficiency(temp, speed, loadv)
+
+        sev = severity_for_value(temp, loadv, eff)
 
         reason = []
         if temp and temp > 85:
@@ -201,18 +201,30 @@ def generate_alerts(df):
             reason.append(f"High Load {loadv}")
         if eff and eff < 60:
             reason.append(f"Low Efficiency {round(eff,1)}%")
+        if status.lower() == "maintenance":
+            reason.append("Maintenance State")
 
         if reason:
-            alert = make_alert(row["Machine"], "warning", "; ".join(reason), row)
+            alert = make_alert(m, sev, "; ".join(reason), row)
             if alert["id"] not in ids:
                 new_alerts.append(alert)
 
     if new_alerts:
         save_alerts(existing + new_alerts)
 
+    return new_alerts
+
+
 # --------------------------------------------------------------
-# SIDEBAR
+# SIDEBAR NAVIGATION
 # --------------------------------------------------------------
+st.sidebar.markdown("""
+<h2 style='color:white; font-size:26px; margin-bottom:0px;'>
+    Developed by <b>Manoj C</b>
+</h2>
+<hr style='border:1px solid #444;'>
+""", unsafe_allow_html=True)
+
 st.sidebar.title("Navigation")
 
 page = st.sidebar.selectbox("Select Page", [
@@ -227,17 +239,22 @@ page = st.sidebar.selectbox("Select Page", [
     "Alerts"
 ])
 
+refresh = st.sidebar.button("Force Refresh")
+
+
 # --------------------------------------------------------------
-# LOAD DATA + GENERATE ALERTS  ✅ (ONLY ADDITION USED HERE)
+# LOAD DATA + GENERATE ALERTS
 # --------------------------------------------------------------
-auto_update_factory_data()
 df = read_factory_data()
 generate_alerts(df)
 
+
 # --------------------------------------------------------------
-# MACHINE DETAIL FUNCTION
+# MACHINE DETAIL PAGE FUNCTION
 # --------------------------------------------------------------
 def show_machine(machine_key, title, img_file):
+    st_autorefresh(interval=5000, key=machine_key)
+
     st.title(title)
     st.image(f"static/images/{img_file}", use_container_width=True)
 
@@ -246,27 +263,83 @@ def show_machine(machine_key, title, img_file):
 
     if not df2.empty:
         r = df2.iloc[-1]
-        eff = predict_efficiency(
-            try_float(r["Temperature"]),
-            try_float(r["Speed"]),
-            try_float(r["Load"])
-        )
 
-        st.metric("Temperature", r["Temperature"])
-        st.metric("Speed", r["Speed"])
-        st.metric("Load", r["Load"])
-        st.metric("Efficiency", eff if eff else "N/A")
+        temp = try_float(r["Temperature"])
+        loadv = try_float(r["Load"])
+        speed = try_float(r["Speed"])
+        status = r["Status"]
+        eff = predict_efficiency(temp, speed, loadv)
+
+        st.metric("Status", f"{status_light(status)} {status}")
+        st.metric("Temperature", temp)
+        st.metric("Load", loadv)
+        st.metric("Speed", speed)
+        st.metric("Efficiency", round(eff,2) if eff else "N/A")
+
+        fig = px.scatter(df2, x="Temperature", y="Load",
+                         color="Status", size="Speed")
+        st.plotly_chart(fig, use_container_width=True, key=f"{machine_key}_chart")
+
 
 # --------------------------------------------------------------
-# PAGE ROUTING (UNCHANGED)
+# DASHBOARD PAGE
 # --------------------------------------------------------------
 if page == "Dashboard":
-    st.title("📊 Dashboard")
-    st.dataframe(df, use_container_width=True)
+    st_autorefresh(interval=5000, key="dash")
+    st.markdown("""
+<h1 style='font-size: 48px; color: white; text-align: center;'>
+    🏭 Digital Twin Factory
+</h1>
+<br>
+""", unsafe_allow_html=True)
 
+    st.title("📊 Dashboard")
+
+    if not df.empty:
+        df["Status Light"] = df["Status"].apply(status_light)
+        df["Predicted_Efficiency"] = df.apply(
+            lambda r: predict_efficiency(
+                try_float(r["Temperature"]),
+                try_float(r["Speed"]),
+                try_float(r["Load"])
+            ), axis=1
+        )
+
+        st.dataframe(df, use_container_width=True)
+
+        fig = px.scatter(df, x="Temperature", y="Predicted_Efficiency",
+                         color="Machine", size="Load")
+        st.plotly_chart(fig, use_container_width=True, key="dash_plot")
+
+
+# --------------------------------------------------------------
+# MACHINE GALLERY
+# --------------------------------------------------------------
 elif page == "Machine Gallery":
     st.title("🏭 Machine Gallery")
 
+    col1, col2 = st.columns(2)
+    with col1:
+        st.write("🟢 CNC Machine 1")
+        st.image("static/images/cnc1_machine.png", use_container_width=True)
+
+        st.write("🛠 Lathe Machine")
+        st.image("static/images/lathe_machine.png", use_container_width=True)
+
+    with col2:
+        st.write("🟡 CNC Machine 2")
+        st.image("static/images/cnc2_machine.png", use_container_width=True)
+
+        st.write("🔧 Milling Machine")
+        st.image("static/images/milling_machine.png", use_container_width=True)
+
+    st.write("🔩 Drilling Machine")
+    st.image("static/images/drilling_machine.png", use_container_width=True)
+
+
+# --------------------------------------------------------------
+# MACHINE PAGES
+# --------------------------------------------------------------
 elif page == "CNC Machine 1":
     show_machine("CNC-1", "CNC Machine 1", "cnc1_machine.png")
 
@@ -282,6 +355,67 @@ elif page == "Milling Machine":
 elif page == "Drilling Machine":
     show_machine("Drill-1", "Drilling Machine", "drilling_machine.png")
 
+
+# --------------------------------------------------------------
+# PREDICTIVE MAINTENANCE TIMELINE
+# --------------------------------------------------------------
+elif page == "Predictive Maintenance":
+    st_autorefresh(interval=5000, key="pm_page")
+
+    st.title("🔮 Predictive Maintenance Timeline")
+
+    machines = ["CNC-1","CNC-2","Lathe-1","Mill-1","Drill-1"]
+    rows = []
+
+    for m in machines:
+        d = df[df["Machine"] == m]
+        if d.empty:
+            continue
+
+        latest = d.iloc[-1]
+
+        temp = try_float(latest["Temperature"])
+        loadv = try_float(latest["Load"])
+        speed = try_float(latest["Speed"])
+        eff = predict_efficiency(temp, speed, loadv)
+
+        issue, hours_left = maintenance_prediction(temp, speed, loadv, eff)
+
+        rows.append({
+            "Machine": m,
+            "Issue": issue,
+            "Hours Left": hours_left
+        })
+
+    df_pm = pd.DataFrame(rows)
+    st.dataframe(df_pm, use_container_width=True)
+
+    fig = px.bar(df_pm, x="Machine", y="Hours Left",
+                 color="Issue",
+                 title="⏳ Predicted Hours Before Maintenance Needed",
+                 text="Hours Left")
+    st.plotly_chart(fig, use_container_width=True, key="pm_chart")
+
+
+# --------------------------------------------------------------
+# ALERTS PAGE
+# --------------------------------------------------------------
 elif page == "Alerts":
-    st.title("🚨 Alerts")
-    st.dataframe(pd.DataFrame(load_alerts()), use_container_width=True)
+    st_autorefresh(interval=5000, key="alert_page")
+    st.title("🚨 Alerts Center")
+
+    alerts = load_alerts()
+
+    if not alerts:
+        st.success("No alerts.")
+    else:
+        dfA = pd.DataFrame(alerts)
+        st.dataframe(dfA, use_container_width=True)
+
+        if any(a["severity"] == "critical" for a in alerts):
+            play_alert_sound()
+
+        for _, row in dfA.iterrows():
+            with st.expander(f"{row['timestamp']} — {row['machine']} — {row['severity']}"):
+                st.write("Reason:", row["reason"])
+                st.json(row["data"])
