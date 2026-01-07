@@ -1,0 +1,6 @@
+Machine,Temperature,Speed,Load,Status
+CNC-1,62.18,1403.87,71.69,Maintenance
+CNC-2,74.29,1255.77,91.26,Maintenance
+Lathe-1,77.84,1098.68,81.05,Idle
+Drill-1,89.55,1323.82,77.61,Maintenance
+Mill-1,94.75,1180.17,59.5,Idle
