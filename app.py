@@ -262,9 +262,9 @@ def auto_update_factory_data():
 # --------------------------------------------------------------
 # LOAD DATA + GENERATE ALERTS
 # --------------------------------------------------------------
+auto_update_factory_data()
 df = read_factory_data()
 generate_alerts(df)
-
 
 # --------------------------------------------------------------
 # MACHINE DETAIL PAGE FUNCTION
@@ -436,4 +436,5 @@ elif page == "Alerts":
             with st.expander(f"{row['timestamp']} — {row['machine']} — {row['severity']}"):
                 st.write("Reason:", row["reason"])
                 st.json(row["data"])
+
 
