@@ -1,11 +1,7 @@
 # app.py
 import streamlit as st
-try:
-    from streamlit_autorefresh import st_autorefresh
-except:
-    def st_autorefresh(interval=0, key=None):
-        return None
-
+from streamlit_autorefresh import st_autorefresh
+import random
 import pandas as pd
 import plotly.express as px
 import joblib
@@ -14,6 +10,8 @@ import json
 from datetime import datetime
 
 st.set_page_config(page_title="Digital Twin Factory", layout="wide")
+st_autorefresh(interval=5000, key="global_refresh")
+st.write("🔁 Refresh Test Number:", random.randint(1, 1000))
 
 # --------------------------------------------------------------
 # CONFIG PATHS
@@ -421,3 +419,4 @@ elif page == "Alerts":
             with st.expander(f"{row['timestamp']} — {row['machine']} — {row['severity']}"):
                 st.write("Reason:", row["reason"])
                 st.json(row["data"])
+
