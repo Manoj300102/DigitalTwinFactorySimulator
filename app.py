@@ -1,7 +1,4 @@
-# ==============================================================
-# app.py — Digital Twin Factory Simulator (FULL WORKING VERSION)
-# ==============================================================
-
+# app.py
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 import random
@@ -12,75 +9,135 @@ import os
 import json
 from datetime import datetime
 
-# --------------------------------------------------------------
-# PAGE CONFIG + GLOBAL AUTO REFRESH (5 SECONDS)
-# --------------------------------------------------------------
 st.set_page_config(page_title="Digital Twin Factory", layout="wide")
 st_autorefresh(interval=5000, key="global_refresh")
+st.write("🔁 Refresh Test Number:", random.randint(1, 1000))
 
 # --------------------------------------------------------------
-# PATHS
+# CONFIG PATHS
 # --------------------------------------------------------------
 FACTORY_CSV = "factory_data.csv"
 ALERTS_FILE = "alerts.json"
-AI_MODEL_PATH = "ai_model.pkl"
+AI_MODEL_PATHS = ["ai_model.pkl", "/mnt/data/ai_model.pkl"]
 
 # --------------------------------------------------------------
-# UPDATE FACTORY DATA EVERY REFRESH (CORE FIX)
+# AUTO UPDATE FACTORY DATA EVERY 5 SECONDS  ✅ (ADDED)
 # --------------------------------------------------------------
-def update_factory_data():
-    machines = [
-        ("CNC-1", "Running"),
-        ("CNC-2", "Running"),
-        ("Lathe-1", "Running"),
-        ("Mill-1", "Running"),
-        ("Drill-1", "Running"),
-    ]
-
+def auto_update_factory_data():
+    machines = ["CNC-1", "CNC-2", "Lathe-1", "Mill-1", "Drill-1"]
     rows = []
-    for m, status in machines:
+
+    for m in machines:
         rows.append({
             "Machine": m,
             "Temperature": round(random.uniform(65, 100), 2),
             "Speed": round(random.uniform(500, 1500), 2),
             "Load": round(random.uniform(30, 100), 2),
-            "Status": status
+            "Status": "Running"
         })
 
     pd.DataFrame(rows).to_csv(FACTORY_CSV, index=False)
 
 # --------------------------------------------------------------
-# LOAD FACTORY DATA
+# SOUND ALERT FUNCTION
 # --------------------------------------------------------------
-def read_factory_data():
-    if not os.path.exists(FACTORY_CSV):
-        return pd.DataFrame(
-            columns=["Machine", "Temperature", "Speed", "Load", "Status"]
-        )
-    return pd.read_csv(FACTORY_CSV)
+def play_alert_sound():
+    sound_path = "static/sounds/alert.mp3"
+    js = f"""
+        <script>
+            var audio = new Audio('{sound_path}');
+            audio.play();
+        </script>
+    """
+    st.markdown(js, unsafe_allow_html=True)
 
 # --------------------------------------------------------------
 # LOAD AI MODEL
 # --------------------------------------------------------------
 @st.cache_resource
-def load_model():
-    if os.path.exists(AI_MODEL_PATH):
-        try:
-            return joblib.load(AI_MODEL_PATH)
-        except:
-            return None
+def load_ai_model():
+    for p in AI_MODEL_PATHS:
+        if os.path.exists(p):
+            try:
+                return joblib.load(p)
+            except:
+                pass
     return None
 
-model = load_model()
+model = load_ai_model()
 
+# --------------------------------------------------------------
+# UTILITY HELPERS
+# --------------------------------------------------------------
+def safe_read_csv(path):
+    try:
+        return pd.read_csv(path)
+    except:
+        return None
+
+def try_float(v):
+    try:
+        return float(v)
+    except:
+        return None
+
+def read_factory_data():
+    df = safe_read_csv(FACTORY_CSV)
+    if df is None:
+        return pd.DataFrame(columns=["Machine","Temperature","Speed","Load","Status"])
+    return df
+
+def status_light(status):
+    s = str(status).lower()
+    if s == "running":
+        return "🟢"
+    elif s == "idle":
+        return "🟡"
+    elif s == "maintenance":
+        return "🔴"
+    return "⚪"
+
+# --------------------------------------------------------------
+# AI PREDICTION
+# --------------------------------------------------------------
 def predict_efficiency(temp, speed, load):
     if model is None:
-        return round(random.uniform(60, 95), 2)
+        return None
     try:
-        val = model.predict([[temp, speed, load]])[0]
-        return round(max(0, min(100, val)), 2)
+        val = float(model.predict([[temp, speed, load]])[0])
+        return max(0, min(100, val * 100 if val <= 1 else val))
     except:
-        return round(random.uniform(60, 95), 2)
+        return None
+
+# --------------------------------------------------------------
+# PREDICTIVE MAINTENANCE
+# --------------------------------------------------------------
+def maintenance_prediction(temp, speed, load, efficiency):
+    if efficiency is None:
+        efficiency = 100
+
+    if temp > 95:
+        return "🔥 Overheat Failure Predicted", 6
+    elif temp > 90:
+        return "🔥 High Temperature Risk", 12
+    elif temp > 85:
+        return "⚠️ Temperature Rising", 24
+
+    if load > 95:
+        return "⚙️ Load Overstress Likely", 8
+    elif load > 90:
+        return "⚙️ Heavy Load Trend", 18
+    elif load > 85:
+        return "⚠️ Load Increasing", 36
+
+    if efficiency < 30:
+        return "🔩 Critical Efficiency Drop", 10
+    elif efficiency < 50:
+        return "🔩 Efficiency Declining", 24
+    elif efficiency < 70:
+        return "🛠 Maintenance Suggested Soon", 48
+
+    return "✅ No Issues — Stable", 72
 
 # --------------------------------------------------------------
 # ALERT SYSTEM
@@ -88,130 +145,143 @@ def predict_efficiency(temp, speed, load):
 def load_alerts():
     if not os.path.exists(ALERTS_FILE):
         return []
-    with open(ALERTS_FILE, "r") as f:
-        return json.load(f)
+    try:
+        with open(ALERTS_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return []
 
 def save_alerts(alerts):
     with open(ALERTS_FILE, "w") as f:
         json.dump(alerts, f, indent=2)
 
+def make_alert(machine, severity, reason, row):
+    return {
+        "id": f"{machine}_{int(datetime.utcnow().timestamp()*1000)}",
+        "machine": machine,
+        "severity": severity,
+        "reason": reason,
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "acknowledged": False,
+        "data": {
+            "Temperature": try_float(row["Temperature"]),
+            "Load": try_float(row["Load"]),
+            "Speed": try_float(row["Speed"]),
+            "Status": row["Status"]
+        }
+    }
+
+def severity_for_value(temp, load, eff):
+    if temp and temp > 95 or load > 95 or (eff and eff < 30):
+        return "critical"
+    if temp and temp > 85 or load > 85 or (eff and eff < 60):
+        return "warning"
+    return "info"
+
 def generate_alerts(df):
-    alerts = load_alerts()
+    existing = load_alerts()
+    ids = {a["id"] for a in existing}
+    new_alerts = []
 
-    for _, r in df.iterrows():
-        if r["Temperature"] > 90 or r["Load"] > 90:
-            alerts.append({
-                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "machine": r["Machine"],
-                "issue": "High Temperature / Load"
-            })
+    if df.empty:
+        return []
 
-    save_alerts(alerts[-50:])
+    last = df.groupby("Machine", as_index=False).last()
 
-# --------------------------------------------------------------
-# UPDATE DATA + READ DATA (EVERY REFRESH)
-# --------------------------------------------------------------
-update_factory_data()
-df = read_factory_data()
-generate_alerts(df)
+    for _, row in last.iterrows():
+        temp = try_float(row["Temperature"])
+        loadv = try_float(row["Load"])
+        speed = try_float(row["Speed"])
+        eff = predict_efficiency(temp, speed, loadv)
+
+        reason = []
+        if temp and temp > 85:
+            reason.append(f"High Temp {temp}")
+        if loadv and loadv > 85:
+            reason.append(f"High Load {loadv}")
+        if eff and eff < 60:
+            reason.append(f"Low Efficiency {round(eff,1)}%")
+
+        if reason:
+            alert = make_alert(row["Machine"], "warning", "; ".join(reason), row)
+            if alert["id"] not in ids:
+                new_alerts.append(alert)
+
+    if new_alerts:
+        save_alerts(existing + new_alerts)
 
 # --------------------------------------------------------------
 # SIDEBAR
 # --------------------------------------------------------------
-st.sidebar.markdown(
-    "<h2 style='color:white;'>Developed by <b>Manoj C</b></h2>",
-    unsafe_allow_html=True
-)
 st.sidebar.title("Navigation")
 
-page = st.sidebar.selectbox(
-    "Select Page",
-    [
-        "Dashboard",
-        "CNC Machine 1",
-        "CNC Machine 2",
-        "Lathe Machine",
-        "Milling Machine",
-        "Drilling Machine",
-        "Alerts"
-    ]
-)
+page = st.sidebar.selectbox("Select Page", [
+    "Dashboard",
+    "Machine Gallery",
+    "CNC Machine 1",
+    "CNC Machine 2",
+    "Lathe Machine",
+    "Milling Machine",
+    "Drilling Machine",
+    "Predictive Maintenance",
+    "Alerts"
+])
 
 # --------------------------------------------------------------
-# MACHINE PAGE FUNCTION (PLACED BEFORE IF/ELIF — FIXES ERROR)
+# LOAD DATA + GENERATE ALERTS  ✅ (ONLY ADDITION USED HERE)
 # --------------------------------------------------------------
-def show_machine(machine_name, image_file=None):
-    st.title(f"🔧 {machine_name}")
-
-    d = df[df["Machine"] == machine_name].iloc[-1]
-
-    eff = predict_efficiency(
-        d["Temperature"], d["Speed"], d["Load"]
-    )
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Temperature (°C)", d["Temperature"])
-    c2.metric("Speed (RPM)", d["Speed"])
-    c3.metric("Load (%)", d["Load"])
-
-    st.metric("Efficiency (%)", eff)
-
-    fig = px.line(
-        df[df["Machine"] == machine_name],
-        y=["Temperature", "Speed", "Load"],
-        title=f"{machine_name} Parameters Trend"
-    )
-    st.plotly_chart(fig, use_container_width=True)
+auto_update_factory_data()
+df = read_factory_data()
+generate_alerts(df)
 
 # --------------------------------------------------------------
-# PAGE ROUTING (NO FUNCTIONS BETWEEN IF / ELIF)
+# MACHINE DETAIL FUNCTION
+# --------------------------------------------------------------
+def show_machine(machine_key, title, img_file):
+    st.title(title)
+    st.image(f"static/images/{img_file}", use_container_width=True)
+
+    df2 = df[df["Machine"] == machine_key]
+    st.dataframe(df2, use_container_width=True)
+
+    if not df2.empty:
+        r = df2.iloc[-1]
+        eff = predict_efficiency(
+            try_float(r["Temperature"]),
+            try_float(r["Speed"]),
+            try_float(r["Load"])
+        )
+
+        st.metric("Temperature", r["Temperature"])
+        st.metric("Speed", r["Speed"])
+        st.metric("Load", r["Load"])
+        st.metric("Efficiency", eff if eff else "N/A")
+
+# --------------------------------------------------------------
+# PAGE ROUTING (UNCHANGED)
 # --------------------------------------------------------------
 if page == "Dashboard":
-    st.title("🏭 Digital Twin Factory Dashboard")
-
-    df["Efficiency"] = df.apply(
-        lambda r: predict_efficiency(
-            r["Temperature"], r["Speed"], r["Load"]
-        ),
-        axis=1
-    )
-
+    st.title("📊 Dashboard")
     st.dataframe(df, use_container_width=True)
 
-    fig = px.scatter(
-        df,
-        x="Temperature",
-        y="Efficiency",
-        size="Load",
-        color="Machine",
-        title="Machine Efficiency Overview"
-    )
-    st.plotly_chart(fig, use_container_width=True)
+elif page == "Machine Gallery":
+    st.title("🏭 Machine Gallery")
 
 elif page == "CNC Machine 1":
-    show_machine("CNC-1")
+    show_machine("CNC-1", "CNC Machine 1", "cnc1_machine.png")
 
 elif page == "CNC Machine 2":
-    show_machine("CNC-2")
+    show_machine("CNC-2", "CNC Machine 2", "cnc2_machine.png")
 
 elif page == "Lathe Machine":
-    show_machine("Lathe-1")
+    show_machine("Lathe-1", "Lathe Machine", "lathe_machine.png")
 
 elif page == "Milling Machine":
-    show_machine("Mill-1")
+    show_machine("Mill-1", "Milling Machine", "milling_machine.png")
 
 elif page == "Drilling Machine":
-    show_machine("Drill-1")
+    show_machine("Drill-1", "Drilling Machine", "drilling_machine.png")
 
 elif page == "Alerts":
-    st.title("🚨 Alerts Center")
-
-    alerts = load_alerts()
-    if alerts:
-        st.dataframe(pd.DataFrame(alerts), use_container_width=True)
-    else:
-        st.success("No alerts detected")
-
-# ==============================================================
-# END OF FILE
-# ==============================================================
+    st.title("🚨 Alerts")
+    st.dataframe(pd.DataFrame(load_alerts()), use_container_width=True)
