@@ -241,6 +241,23 @@ page = st.sidebar.selectbox("Select Page", [
 
 refresh = st.sidebar.button("Force Refresh")
 
+# --------------------------------------------------------------
+# AUTO UPDATE FACTORY DATA EVERY REFRESH (ADDED)
+# --------------------------------------------------------------
+def auto_update_factory_data():
+    machines = ["CNC-1", "CNC-2", "Lathe-1", "Mill-1", "Drill-1"]
+    rows = []
+
+    for m in machines:
+        rows.append({
+            "Machine": m,
+            "Temperature": round(random.uniform(65, 100), 2),
+            "Speed": round(random.uniform(500, 1500), 2),
+            "Load": round(random.uniform(30, 100), 2),
+            "Status": "Running"
+        })
+
+    pd.DataFrame(rows).to_csv(FACTORY_CSV, index=False)
 
 # --------------------------------------------------------------
 # LOAD DATA + GENERATE ALERTS
@@ -419,3 +436,4 @@ elif page == "Alerts":
             with st.expander(f"{row['timestamp']} — {row['machine']} — {row['severity']}"):
                 st.write("Reason:", row["reason"])
                 st.json(row["data"])
+
